@@ -613,9 +613,14 @@
   color: #1f2937;
 }
 
-.download-btn:hover {
+.download-btn:hover:not(:disabled) {
   background: #c7cbd1;
   transform: translateY(-2px);
+}
+
+.download-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .back-to-dashboard {

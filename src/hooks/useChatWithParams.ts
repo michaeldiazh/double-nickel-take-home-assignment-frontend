@@ -5,6 +5,7 @@ import { ChatMessage, ServerMessage, ConnectionStatus, ConversationSummary } fro
 import { WS_URL } from '../utils/constants';
 import { generateId } from '../utils/id';
 import { useAuth } from '../contexts/AuthContext';
+import { getUserData } from '../services/api';
 
 interface UseChatWithParamsReturn {
   messages: ChatMessage[];
@@ -18,7 +19,7 @@ interface UseChatWithParamsReturn {
 
 export function useChatWithParams(): UseChatWithParamsReturn {
   const [searchParams] = useSearchParams();
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const navigate = useNavigate();
   
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -68,7 +69,7 @@ export function useChatWithParams(): UseChatWithParamsReturn {
       }
     });
 
-    ws.addEventListener('message', (event: MessageEvent) => {
+    ws.addEventListener('message', async (event: MessageEvent) => {
       try {
         const data: ServerMessage = JSON.parse(event.data);
         
@@ -103,13 +104,49 @@ export function useChatWithParams(): UseChatWithParamsReturn {
             
             // Check if conversation is complete
             if (data.conversationComplete && data.screeningDecision) {
-              const summary: ConversationSummary = {
-                applicationId: conversationIdRef.current || '',
-                screeningDecision: data.screeningDecision,
-                screeningSummary: data.screeningSummary || null,
-              };
-              // Navigate to summary page with data
-              navigate('/summary', { state: summary });
+              // Refresh user data to get the latest applicationId
+              // Use IIFE to handle async operation
+              (async () => {
+                try {
+                  if (userId) {
+                    const updatedUser = await getUserData(userId);
+                    setUser(updatedUser);
+                    
+                    // Find the applicationId for this job
+                    const application = updatedUser.jobApplications?.find(
+                      app => app.jobId === jobId
+                    );
+                    
+                    if (application?.applicationId) {
+                      const summary: ConversationSummary = {
+                        applicationId: application.applicationId,
+                        screeningDecision: data.screeningDecision,
+                        screeningSummary: data.screeningSummary || null,
+                      };
+                      // Navigate to summary page with data
+                      navigate('/summary', { state: summary });
+                    } else {
+                      // Fallback: use conversationId if applicationId not found yet
+                      console.warn('ApplicationId not found, using conversationId as fallback');
+                      const summary: ConversationSummary = {
+                        applicationId: conversationIdRef.current || '',
+                        screeningDecision: data.screeningDecision,
+                        screeningSummary: data.screeningSummary || null,
+                      };
+                      navigate('/summary', { state: summary });
+                    }
+                  }
+                } catch (err) {
+                  console.error('Failed to refresh user data:', err);
+                  // Fallback navigation with conversationId
+                  const summary: ConversationSummary = {
+                    applicationId: conversationIdRef.current || '',
+                    screeningDecision: data.screeningDecision,
+                    screeningSummary: data.screeningSummary || null,
+                  };
+                  navigate('/summary', { state: summary });
+                }
+              })();
             }
             break;
 
@@ -165,7 +202,7 @@ export function useChatWithParams(): UseChatWithParamsReturn {
     return () => {
       ws.close();
     };
-  }, [userId, jobId]);
+  }, [userId, jobId, navigate, setUser]);
 
   const sendUserMessage = useCallback((text: string) => {
     const ws = wsRef.current;
